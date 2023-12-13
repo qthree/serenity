@@ -50,6 +50,7 @@ extract_map = { version = "0.3.1", features = ["serde"] }
 aformat = "0.1.8"
 bytes = "1.11.0"
 ref-cast = "1.0.25"
+async-http-proxy = { version = "1.2.5", features = ["runtime-tokio"] }
 # Optional dependencies
 foldhash = { version = "0.2.0", optional = true }
 chrono = { version = "0.4.42", default-features = false, features = ["clock", "serde"], optional = true }
