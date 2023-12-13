@@ -9,6 +9,7 @@ use tokio::sync::{Mutex, RwLock};
 use tokio::time::{sleep, timeout, Duration, Instant};
 use tracing::{debug, info, instrument, warn};
 use typemap_rev::TypeMap;
+use url::Url;
 
 #[cfg(feature = "voice")]
 use super::VoiceGatewayManager;
@@ -73,6 +74,7 @@ pub struct ShardQueuer {
     pub voice_manager: Option<Arc<dyn VoiceGatewayManager + 'static>>,
     /// A copy of the URL to use to connect to the gateway.
     pub ws_url: Arc<Mutex<String>>,
+    pub ws_proxy: Option<Arc<Url>>,
     #[cfg(feature = "cache")]
     pub cache: Arc<Cache>,
     pub http: Arc<Http>,
@@ -164,6 +166,7 @@ impl ShardQueuer {
 
         let mut shard = Shard::new(
             Arc::clone(&self.ws_url),
+            self.ws_proxy.clone(),
             self.http.token(),
             shard_info,
             self.intents,

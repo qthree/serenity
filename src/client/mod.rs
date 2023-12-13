@@ -35,6 +35,7 @@ use futures::StreamExt as _;
 use tokio::sync::{Mutex, RwLock};
 use tracing::{debug, error, info, instrument};
 use typemap_rev::{TypeMap, TypeMapKey};
+use url::Url;
 
 pub use self::context::Context;
 pub use self::error::Error as ClientError;
@@ -76,6 +77,7 @@ pub struct ClientBuilder {
     event_handlers: Vec<Arc<dyn EventHandler>>,
     raw_event_handlers: Vec<Arc<dyn RawEventHandler>>,
     presence: PresenceData,
+    ws_proxy: Option<Url>,
 }
 
 #[cfg(feature = "gateway")]
@@ -94,6 +96,7 @@ impl ClientBuilder {
             event_handlers: vec![],
             raw_event_handlers: vec![],
             presence: PresenceData::default(),
+            ws_proxy: None,
         }
     }
 
@@ -322,6 +325,17 @@ impl ClientBuilder {
     pub fn get_presence(&self) -> &PresenceData {
         &self.presence
     }
+
+    /// Sets a http proxy for the websocket connection.
+    pub fn ws_proxy(mut self, proxy: Url) -> Self {
+        self.ws_proxy = Some(proxy);
+        self
+    }
+
+    /// Gets the websocket proxy. See [`Self::ws_proxy`] for more info.
+    pub fn get_ws_proxy(&self) -> Option<&Url> {
+        self.ws_proxy.as_ref()
+    }
 }
 
 #[cfg(feature = "gateway")]
@@ -339,6 +353,7 @@ impl IntoFuture for ClientBuilder {
         let raw_event_handlers = self.raw_event_handlers;
         let intents = self.intents;
         let presence = self.presence;
+        let ws_proxy = self.ws_proxy;
 
         let mut http = self.http;
 
@@ -383,6 +398,7 @@ impl IntoFuture for ClientBuilder {
                 #[cfg(feature = "voice")]
                 voice_manager: voice_manager.clone(),
                 ws_url: Arc::clone(&ws_url),
+                ws_proxy: ws_proxy.map(Arc::new),
                 #[cfg(feature = "cache")]
                 cache: Arc::clone(&cache),
                 http: Arc::clone(&http),

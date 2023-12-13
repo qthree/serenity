@@ -11,6 +11,7 @@ use tokio::sync::{Mutex, RwLock};
 use tokio::time::timeout;
 use tracing::{info, instrument, warn};
 use typemap_rev::TypeMap;
+use url::Url;
 
 #[cfg(feature = "voice")]
 use super::VoiceGatewayManager;
@@ -155,6 +156,7 @@ impl ShardManager {
             #[cfg(feature = "voice")]
             voice_manager: opt.voice_manager,
             ws_url: opt.ws_url,
+            ws_proxy: opt.ws_proxy,
             #[cfg(feature = "cache")]
             cache: opt.cache,
             http: opt.http,
@@ -396,6 +398,7 @@ pub struct ShardManagerOptions {
     #[cfg(feature = "voice")]
     pub voice_manager: Option<Arc<dyn VoiceGatewayManager>>,
     pub ws_url: Arc<Mutex<String>>,
+    pub ws_proxy: Option<Arc<Url>>,
     #[cfg(feature = "cache")]
     pub cache: Arc<Cache>,
     pub http: Arc<Http>,
