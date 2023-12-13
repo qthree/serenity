@@ -36,6 +36,7 @@ use futures::channel::mpsc::UnboundedReceiver as Receiver;
 use futures::future::BoxFuture;
 use futures::StreamExt as _;
 use tracing::{debug, warn};
+use url::Url;
 
 pub use self::context::Context;
 pub use self::event_handler::{EventHandler, FullEvent, RawEventHandler};
@@ -71,6 +72,7 @@ pub struct ClientBuilder {
     event_handler: Option<Arc<dyn EventHandler>>,
     raw_event_handler: Option<Arc<dyn RawEventHandler>>,
     presence: PresenceData,
+    ws_proxy: Option<String>,
 }
 
 impl ClientBuilder {
@@ -104,6 +106,7 @@ impl ClientBuilder {
             event_handler: None,
             raw_event_handler: None,
             presence: PresenceData::default(),
+            ws_proxy: None,
         }
     }
 
@@ -251,6 +254,18 @@ impl ClientBuilder {
     pub fn get_presence(&self) -> &PresenceData {
         &self.presence
     }
+
+    /// Sets a http proxy for the websocket connection.
+    pub fn ws_proxy<T: Into<String>>(mut self, proxy: T) -> Self {
+        self.ws_proxy = Some(proxy.into());
+        self
+    }
+
+    /// Gets the websocket proxy. See [`Self::ws_proxy`] for more info.
+    #[must_use]
+    pub fn get_ws_proxy(&self) -> Option<&str> {
+        self.ws_proxy.as_deref()
+    }
 }
 
 impl IntoFuture for ClientBuilder {
@@ -266,6 +281,7 @@ impl IntoFuture for ClientBuilder {
         let intents = self.intents;
         let presence = self.presence;
         let http = self.http;
+        let ws_proxy = self.ws_proxy;
 
         if let Some(ratelimiter) = &http.ratelimiter {
             if let Some(event_handler) = &self.event_handler {
@@ -298,6 +314,18 @@ impl IntoFuture for ClientBuilder {
                 },
             };
 
+            let ws_proxy = match ws_proxy {
+                Some(proxy) => {
+                    let parsed_proxy = Url::parse(&proxy).map_err(|why| {
+                        tracing::warn!("Error building proxy URL with base `{}`: {:?}", proxy, why);
+
+                        Error::Gateway(GatewayError::BuildingUrl)
+                    })?;
+                    Some(Arc::new(parsed_proxy))
+                },
+                None => None,
+            };
+
             #[cfg(feature = "framework")]
             let framework_cell = Arc::new(OnceLock::new());
             let (shard_manager, shard_manager_ret_value) = ShardManager::new(ShardManagerOptions {
@@ -309,6 +337,7 @@ impl IntoFuture for ClientBuilder {
                 #[cfg(feature = "voice")]
                 voice_manager: voice_manager.clone(),
                 ws_url: Arc::clone(&ws_url),
+                ws_proxy,
                 shard_total,
                 #[cfg(feature = "cache")]
                 cache: Arc::clone(&cache),
