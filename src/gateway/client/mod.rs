@@ -38,6 +38,7 @@ use futures::future::BoxFuture;
 #[cfg(feature = "tracing_instrument")]
 use tracing::instrument;
 use tracing::{debug, warn};
+use url::Url;
 
 pub use self::context::Context;
 pub use self::event_handler::{EventHandler, FullEvent, RawEventHandler};
@@ -51,6 +52,7 @@ use super::{
     ShardManagerOptions,
     TransportCompression,
 };
+use crate::all::GatewayError;
 #[cfg(feature = "cache")]
 use crate::cache::Cache;
 #[cfg(feature = "cache")]
@@ -83,6 +85,7 @@ pub struct ClientBuilder {
     presence: PresenceData,
     wait_time_between_shard_start: Duration,
     compression: TransportCompression,
+    ws_proxy: Option<String>,
 }
 
 impl ClientBuilder {
@@ -119,6 +122,7 @@ impl ClientBuilder {
             presence: PresenceData::default(),
             wait_time_between_shard_start: DEFAULT_WAIT_BETWEEN_SHARD_START,
             compression: TransportCompression::None,
+            ws_proxy: None,
         }
     }
 
@@ -285,6 +289,18 @@ impl ClientBuilder {
     pub fn get_presence(&self) -> &PresenceData {
         &self.presence
     }
+
+    /// Sets a http proxy for the websocket connection.
+    pub fn ws_proxy<T: Into<String>>(mut self, proxy: T) -> Self {
+        self.ws_proxy = Some(proxy.into());
+        self
+    }
+
+    /// Gets the websocket proxy. See [`Self::ws_proxy`] for more info.
+    #[must_use]
+    pub fn get_ws_proxy(&self) -> Option<&str> {
+        self.ws_proxy.as_deref()
+    }
 }
 
 impl IntoFuture for ClientBuilder {
@@ -299,6 +315,7 @@ impl IntoFuture for ClientBuilder {
         let intents = self.intents;
         let presence = self.presence;
         let http = self.http;
+        let ws_proxy = self.ws_proxy;
 
         if let Some(ratelimiter) = &http.ratelimiter {
             if let Some(event_handler) = &self.event_handler {
@@ -328,6 +345,18 @@ impl IntoFuture for ClientBuilder {
                 },
             };
 
+            let ws_proxy = match ws_proxy {
+                Some(proxy) => {
+                    let parsed_proxy = Url::parse(&proxy).map_err(|why| {
+                        tracing::warn!("Error building proxy URL with base `{}`: {:?}", proxy, why);
+
+                        Error::Gateway(GatewayError::BuildingUrl)
+                    })?;
+                    Some(Arc::new(parsed_proxy))
+                },
+                None => None,
+            };
+
             #[cfg(feature = "framework")]
             let framework_cell = Arc::new(OnceLock::new());
 
@@ -342,6 +371,7 @@ impl IntoFuture for ClientBuilder {
                 voice_manager: self.voice_manager.clone(),
                 ws_url: Arc::clone(&ws_url),
                 compression: self.compression,
+                ws_proxy,
                 shard_total,
                 max_concurrency,
                 #[cfg(feature = "cache")]
