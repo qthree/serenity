@@ -1,5 +1,4 @@
 use std::env::consts;
-use std::io::ErrorKind;
 use std::io::Read;
 use std::time::SystemTime;
 
@@ -91,14 +90,26 @@ impl WsClient {
         target_url: &Url,
         proxy_url: &Url,
     ) -> std::result::Result<TcpStream, std::io::Error> {
-        let proxy_addr = &proxy_url[Position::BeforeHost..Position::AfterPort];
-        if proxy_url.scheme() != "http" && proxy_url.scheme() != "https" {
-            return Err(std::io::Error::new(ErrorKind::Unsupported, "unknown proxy scheme"));
+        use std::io::{Error, ErrorKind};
+        enum ProxyProto {
+            Http,
+            Socks4,
+            Socks5,
         }
+
+        let proxy_addr = &proxy_url[Position::BeforeHost..Position::AfterPort];
+        let proto = match proxy_url.scheme() {
+            "http" | "https" => ProxyProto::Http,
+            "socks4" => ProxyProto::Socks4,
+            "socks5" => ProxyProto::Socks5,
+            _ => {
+                return Err(Error::new(ErrorKind::Unsupported, "unknown proxy scheme"));
+            },
+        };
 
         let host = target_url
             .host_str()
-            .ok_or_else(|| std::io::Error::new(ErrorKind::Unsupported, "unknown target host"))?;
+            .ok_or_else(|| Error::new(ErrorKind::Unsupported, "unknown target host"))?;
         let port = target_url
             .port()
             .or_else(|| match target_url.scheme() {
@@ -106,12 +117,30 @@ impl WsClient {
                 "ws" => Some(80),
                 _ => None,
             })
-            .ok_or_else(|| std::io::Error::new(ErrorKind::Unsupported, "unknown target scheme"))?;
+            .ok_or_else(|| Error::new(ErrorKind::Unsupported, "unknown target scheme"))?;
         let mut tcp_stream = TcpStream::connect(proxy_addr).await?;
 
-        async_http_proxy::http_connect_tokio(&mut tcp_stream, host, port)
-            .await
-            .map_err(|_| std::io::Error::new(ErrorKind::Unsupported, "unsupported proxy"))?;
+        match proto {
+            ProxyProto::Http => {
+                async_http_proxy::http_connect_tokio(&mut tcp_stream, host, port).await.map_err(
+                    |err| Error::new(ErrorKind::Other, format!("http proxy error: {err:#}")),
+                )?;
+            },
+            ProxyProto::Socks4 => {
+                tokio_socks::tcp::Socks4Stream::connect_with_socket(&mut tcp_stream, (host, port))
+                    .await
+                    .map_err(|err| {
+                        Error::new(ErrorKind::Other, format!("socks4 proxy error: {err:#}"))
+                    })?;
+            },
+            ProxyProto::Socks5 => {
+                tokio_socks::tcp::Socks5Stream::connect_with_socket(&mut tcp_stream, (host, port))
+                    .await
+                    .map_err(|err| {
+                        Error::new(ErrorKind::Other, format!("socks5 proxy error: {err:#}"))
+                    })?;
+            },
+        }
 
         Ok(tcp_stream)
     }
