@@ -52,7 +52,6 @@ use super::{
     ShardManagerOptions,
     TransportCompression,
 };
-use crate::all::GatewayError;
 #[cfg(feature = "cache")]
 use crate::cache::Cache;
 #[cfg(feature = "cache")]
@@ -85,7 +84,7 @@ pub struct ClientBuilder {
     presence: PresenceData,
     wait_time_between_shard_start: Duration,
     compression: TransportCompression,
-    ws_proxy: Option<String>,
+    ws_proxy: Option<Url>,
 }
 
 impl ClientBuilder {
@@ -280,15 +279,15 @@ impl ClientBuilder {
     }
 
     /// Sets a http proxy for the websocket connection.
-    pub fn ws_proxy<T: Into<String>>(mut self, proxy: T) -> Self {
-        self.ws_proxy = Some(proxy.into());
+    pub fn ws_proxy(mut self, proxy: Url) -> Self {
+        self.ws_proxy = Some(proxy);
         self
     }
 
     /// Gets the websocket proxy. See [`Self::ws_proxy`] for more info.
     #[must_use]
-    pub fn get_ws_proxy(&self) -> Option<&str> {
-        self.ws_proxy.as_deref()
+    pub fn get_ws_proxy(&self) -> Option<&Url> {
+        self.ws_proxy.as_ref()
     }
 }
 
@@ -334,18 +333,6 @@ impl IntoFuture for ClientBuilder {
                 },
             };
 
-            let ws_proxy = match ws_proxy {
-                Some(proxy) => {
-                    let parsed_proxy = Url::parse(&proxy).map_err(|why| {
-                        tracing::warn!("Error building proxy URL with base `{}`: {:?}", proxy, why);
-
-                        Error::Gateway(GatewayError::BuildingUrl)
-                    })?;
-                    Some(Arc::new(parsed_proxy))
-                },
-                None => None,
-            };
-
             #[cfg(feature = "framework")]
             let framework_cell = Arc::new(OnceLock::new());
 
@@ -360,7 +347,7 @@ impl IntoFuture for ClientBuilder {
                 voice_manager: self.voice_manager.clone(),
                 ws_url: Arc::clone(&ws_url),
                 compression: self.compression,
-                ws_proxy,
+                ws_proxy: ws_proxy.map(Arc::new),
                 shard_total,
                 max_concurrency,
                 #[cfg(feature = "cache")]
